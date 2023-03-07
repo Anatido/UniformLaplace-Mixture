@@ -1,0 +1,430 @@
+---
+title: "Data Example"
+author: "Amos Natido"
+date: "4/18/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(rmutil)
+```
+
+
+```{r, echo=FALSE}
+
+act_dpv_75 <- read.table("C:/Users/amosn/OneDrive/Desktop/data_thesis/nv-pv-2006/Actual_39.75_-119.95_2006_UPV_150MW_5_Min.csv", header =TRUE, sep = ",")
+
+```
+
+
+```{r, echo=FALSE}
+new_act_75_df <- separate(act_dpv_75, LocalTime, 
+                          into = c("day", "time"),
+                          sep = " " )
+
+new_act_75_df_2 <- new_act_75_df %>% 
+   filter(time %in% c("09:00"))
+```
+
+
+
+```{r, echo = FALSE}
+January <- which(new_act_75_df_2$day == "01/01/06")
+December <- which(new_act_75_df_2$day == "12/31/06")
+
+new_act_75_df_3 <- new_act_75_df_2[c(min(January):max(December)),]
+```
+
+
+```{r}
+
+dailychange <- data.frame(change = diff(new_act_75_df_3$Power.MW.))
+nrow(dailychange)
+MASS::truehist(dailychange$change, nbins = 50)
+which(chge == 0)
+
+fx <- function(x) 0.2684*dunif(x,-71.5,71.5) +(1-0.2684)*dlaplace(x,0,10.2)
+lp <- function(x)dlaplace(x,0, mean(abs(chge$change)))
+nmal <-function(x)dnorm(x, mean = mean(chge$change), sd = sd(chge$change))
+
+#
+plot_no_dens = ggplot(data = chge, aes(x= change)) +
+    geom_histogram(aes(y=..density..),color = "black",fill = "turquoise4", alpha = 0.5, bins = 30, position = "identity") +
+    theme_bw()+
+    labs(x ="Daily change", y = "Density")
+
+
+#
+plot_dens = ggplot(data = chge, aes(x= change)) +
+    geom_histogram(aes(y=..density..),color = "black",fill = "turquoise4", alpha = 0.5, bins = 30, position = "identity") +
+    theme_bw()+
+  stat_function(fun=nmal, size = 0.9, aes(color = "Normal distribution"))+
+  stat_function(fun=lp, size = 0.9, aes(color = "Laplace distribution"))+
+  scale_colour_manual("", values = c("blue", "red"))+
+   theme(
+    legend.position = c(.95, .95),
+    legend.justification = c("right", "top"),
+    legend.box.just = "right",
+    legend.margin = margin(6, 6, 6, 6)
+    )+
+    labs(x ="Daily change", y = "Density")
+
+cowplot::plot_grid(plot_no_dens, plot_dens)
+```
+```{r}
+chge <- data.frame(change = diff(new_act_75_df_3$Power.MW.))
+
+unifLap <- function(x) 0.2684*dunif(x,-71.5,71.5) +(1-0.2684)*dlaplace(x,0,10.2)
+unifNorm <- function(x) 0.272438*dunif(x,-6.6,6.6) +(1-0.272438)*dnorm(x,0,28.93301)
+
+
+
+lp <- function(x)dlaplace(x,0, mean(abs(chge$change)))
+nmal <- function(x)dnorm(x, mean = mean(chge$change), sd = sd(chge$change))
+densplot = ggplot(data = chge, aes(x= change)) +
+    geom_histogram(aes(y=..density..), color = "black", fill = "turquoise4", alpha= 0.5,bins = 30, position="identity") +
+    theme_bw()+
+  stat_function(fun = nmal, size = 0.9, aes(color = "Gaussian"))+
+  stat_function(fun = lp, size = 0.9, aes(color = "Laplace"))+
+  stat_function(fun = unifNorm, size = 0.9, aes(color = "uniform_Gaussian mixture"))+
+  stat_function(fun = unifLap, size = 0.9, aes(color = "uniform_Laplace mixture"))+
+  scale_colour_manual("", values = c("red", "blue","gold", "black"))+
+  labs(x = "Daily change in solar power output", y = "Density") +
+    theme(legend.position = c(.8, .8))
+densplot
+```
+
+```{r include=FALSE}
+iter_param <- function(df, p0, sig0, maxiter = 100, tol = 1e-5){
+  df <- sort(df)
+  n <- length(df) 
+  estim <- array(NA_real_, dim = c(n+1,4), 
+                 dimnames = list(NULL, NULL))
+  
+  ## When a < y1
+  
+  ahat = min(df)/2
+  p_oo = 0
+  sig_oo = mean(df)
+  lo = -n*(log(sig_oo))-1
+   
+  estim[1,1] <- ahat
+  estim[1,2] <- p_oo 
+  estim[1,3] <- sig_oo
+  estim[1,4] <- lo
+  
+  
+  
+  ## When k = n
+  p_n <- p0
+  sig_n <- sig0
+  
+  ln <- sum(log(p_n/max(df) + ((1-p_n)/sig_n)*exp(-df/sig_n)))
+  diff_n = 1
+  iter_n = 0
+  
+  while (diff_n > tol & iter_n < maxiter){
+    
+    ## E-step
+    expD_n <- (1/sig_n)*exp(-df/sig_n)
+    num_n <- p_n/max(df)
+    cexpect_n <- num_n/(num_n + (1-p_n)*expD_n)
+    
+    ## M-step: 
+    p.new_n <- sum(cexpect_n)/n
+    sig.new_n <- (sum(df*cexpect_n) - n*mean(df))/(sum(cexpect_n) - n)
+    
+    #oberseved likelihood
+    likeli_n <- sum(log( p.new_n/max(df) + ((1-p.new_n)/sig.new_n)*exp(-df/sig.new_n)))
+    
+    ## checking convergence
+    diff_n <- likeli_n - ln
+    ln <- likeli_n
+    p_n <- p.new_n
+    sig_n <- sig.new_n
+    #expD_est <- (1/sig)*exp(-df[1:k]/sig)
+    #num_est <- p/max(df[1:k])
+    #cexpect_est <- num/(num + (1-p)*expD)
+    #E_est <- sum(cexpect_est*log(p) + cexpect_est*log(1/max(df[1:k])) + (1- cexpect_est)*log(1-p) + (1- cexpect_est)*log(expD_est)) + sum(log(1-p)+log((1/sig)*exp(-df[(k+1):n]/sig)))
+    
+    iter_n = iter_n + 1
+  
+  }
+  
+  
+  estim[n+1,2] <- p_n
+  estim[n+1,3] <- sig_n
+  estim[n+1,4] <- ln 
+ 
+  
+## k = 1,..n-1 
+  for (k in (1:n-1)){
+    p<- p0
+    sig <- sig0
+      likel0 <- sum(log(p/max(df[1:k]) + ((1-p)/sig)*exp(-df[1:k]/sig))) - (n-k)*log(sig) + (n-k)*log(1-p)-sum(df[(k+1):n]/sig)
+      
+      diff = 1
+      iter = 0
+      
+      while (diff > tol & iter < maxiter){
+        
+        ## E-step
+        expD <- (1/sig)*exp(-df[1:k]/sig)
+        num <- p/max(df[1:k])
+        cexpect <- num/(num + (1-p)*expD)
+        
+        ## M-step: 
+        p.new <- sum(cexpect)/n
+        sig.new <- (sum(df[1:k]*cexpect) - n*mean(df))/(sum(cexpect) - n)
+        
+        #oberseved likelihood
+        likeli <- sum(log(p.new/max(df[1:k]) + ((1-p.new)/sig.new)*exp(-df[c(1:k)]/sig.new))) - (n-k)*log(sig.new) + (n-k)*log(1-p.new)-sum(df[(k+1):n]/sig.new)
+        
+        ## checking convergence
+        diff <- likeli - likel0
+        likel0 <- likeli
+        p <- p.new
+        sig <- sig.new
+        iter = iter + 1;
+
+      }
+    estim[2:(n+1),1] <- df
+    estim[k+1,2] <- p
+    estim[k+1,3] <- sig
+    estim[k+1,4] <- likel0             
+  }
+  colnames(estim)<-c("a_hat", "p_hat", "sig_hat", "likelihood")
+  list(estimates = estim)
+
+}
+
+```
+
+
+```{r}
+unif_norm_fit <- function(df, p0, sig0, maxiter = 100, tol = 1e-5){
+  df <- sort(df)
+  n <- length(df) 
+  estim <- array(NA_real_, dim = c(n+1,4), 
+                 dimnames = list(NULL, NULL))
+  
+  ## When a < y1
+  ahat = min(df)/2
+  p_oo = 0
+  sig_oo = mean(df^2)
+  lo = -n*log(sig_oo) + n*log((sqrt(2/pi))) - n/2
+  
+  estim[1,1] <- ahat
+  estim[1,2] <- p_oo 
+  estim[1,3] <- sig_oo
+  estim[1,4] <- lo
+  
+  # When k = n
+  p_n <- p0
+  sig_n <- sig0
+  
+  ln <- sum(log(p_n/max(df) + sqrt(2/pi)*((1-p_n)/sig_n)*exp(-0.5*(df/sig_n)^2)))
+  diff_n1 = 1
+  diff_n2 = 1
+  iter_n  = 0
+  
+  while (all(c(diff_n1, diff_n2) > tol)  & (iter_n < maxiter)){
+    
+    ## E-step
+    expD_n <- (1/(sig_n))*sqrt(2/pi)*exp(-0.5*(df/sig_n)^2)
+    num_n <- p_n/max(df)
+    cexpect_n <- num_n/(num_n + (1-p_n)*expD_n)
+    
+    ## M-step: 
+    p.new_n <- sum(cexpect_n)/n
+    sig.new_n <- ((sum((df^2)*cexpect_n) - n*mean(df^2))/(sum(cexpect_n) - n))^0.5
+   
+    #oberseved likelihood
+    likeli_n <- sum(log(p.new_n/max(df) + sqrt(2/pi)*((1-p.new_n)/sig.new_n)*exp(-0.5*(df/sig.new_n)^2)))
+    
+    ## checking convergence
+    #diff_n <- abs(likeli_n - ln)
+    diff_n1 <- abs(p.new_n - p_n)
+    diff_n2 <- abs(sig.new_n - sig_n)
+    
+    #ln <- likeli_n
+    p_n <- p.new_n
+    sig_n <- sig.new_n
+    
+    #expD_est <- (1/sig)*exp(-df[1:k]/sig)
+    #num_est <- p/max(df[1:k])
+    #cexpect_est <- num/(num + (1-p)*expD)
+    #E_est <- sum(cexpect_est*log(p) + cexpect_est*log(1/max(df[1:k])) + (1- cexpect_est)*log(1-p) + (1- cexpect_est)*log(expD_est)) + sum(log(1-p)+log((1/sig)*exp(-df[(k+1):n]/sig)))
+    
+    iter_n = iter_n + 1
+  }
+  
+  
+  estim[n+1,2] <- p_n
+  estim[n+1,3] <- sig_n
+  estim[n+1,4] <- likeli_n 
+  
+  
+  ## k = 1,..n-1 
+  for (k in (1:n-1)){
+    p <- p0
+    sig  <- sig0
+    likel0 <- sum(log(p/max(df[1:k]) + sqrt(2/pi)*((1-p)/sig)*exp(-0.5*(df[1:k]/sig)^2))) - (n-k)*log(sig) + (n-k)*log((1-p)*sqrt(2/pi))-(1/(2*sig^2))*sum((df[(k+1):n])^2)
+    
+    diff1 =  1
+    diff2 =  1
+    iter = 0
+    
+    while (all(c(diff1, diff2) > tol) & iter < maxiter){
+      
+      ## E-step
+      expD <- ((1/(sig))*sqrt(2/pi))*exp(-0.5*(df[1:k]/sig)^2)
+      num <- p/max(df[1:k])
+      cexpect <- num/(num + (1-p)*expD)
+      
+      ## M-step: 
+      p.new <- sum(cexpect)/n
+      sig.new <- ((sum((df[1:k]^2)*cexpect) - n*mean(df^2))/(sum(cexpect) - n))^0.5
+      
+      #oberseved likelihood
+      likeli <- sum(log(p.new/max(df[1:k]) + sqrt(2/pi)*((1-p.new)/sig.new)*exp(-0.5*(df[1:k])^2/sig.new^2))) - (n-k)*log(sig.new) + (n-k)*log((1-p.new)*sqrt(2/pi))-(1/(2*sig.new^2))*sum((df[(k+1):n])^2)
+      
+      ## checking convergence
+      #diff <- likeli - likel0
+      #likel0 <- likeli
+      
+      diff1 <- abs(p.new - p)
+      diff2 <- abs(sig.new - sig)
+      p <- p.new
+      sig <- sig.new
+ 
+      iter = iter + 1;
+    }
+    estim[2:(n+1),1] <- df
+    estim[k+1,2] <- p
+    estim[k+1,3] <- sig
+    estim[k+1,4] <- likeli            
+  }
+  colnames(estim)<-c("a_hat", "p_hat", "sig_hat", "likelihood")
+  return(subset(estim, estim[,4]== max(estim[,4])))
+}
+
+```
+
+
+```{r}
+# Parameter Estimation
+sig.int <- mean(abs(chge$change))
+est <- iter_param(df = abs(chge$change), p0 = 0.2, sig0 = sig.int, maxiter = 100, tol = 1e-8)
+```
+
+
+```{r}
+# Parameter Estimation
+sig.int <-mean(abs(chge$change))
+
+est <- unif_norm_fit(df = abs(chge$change), p0 = 0.2, sig0 = sig.int, maxiter = 100, tol = 1e-8)
+(estimates_norm <- subset(est$estimates, est$estimates[,4]== max(est$estimates[,4])))
+
+# (abs(chge$change))
+# tail(est$estimates,20)
+# estimates
+```
+
+```{r}
+# Quantile function
+
+quantileLap <- function(u, a = estimates[1], p = estimates[2], sig = estimates[3]){
+  fa1 <- (1-p)/2 * exp(-a/sig)
+  fa2 <- p + (1-p)/2 *(2-exp(-a/sig))
+
+  if(u > 0 && u <= fa1){
+    r <- sig*log(2*u/(1-p))
+  }else if(u >= fa1 && u <= 0.5){
+    g1 <- function(x) p*(x+a)/(2*a) + (1-p)/2 * exp(x/sig) - u
+    r <-uniroot(g1, c(-a, 0))$root
+ 
+  }else if(u >= 0.5 && u <= fa2){
+    g2 <- function(x) p*(x+a)/(2*a) + (1-p)/2 * (2 - exp(-x/sig)) - u
+    r <-uniroot(g2, c(0, a+300))$root
+  
+  }else{
+    r <- -sig*log(2*(1-u)/(1-p))
+  }
+  return(r)
+}
+
+```
+
+```{r}
+## Quantile Funtion
+quantilenorm <- function(u, a = estimates_norm[1] , p = estimates_norm[2], sig = estimates_norm[3]){
+  fa1 <- (1-p) * pnorm(-a, mean = 0, sd = sig)
+  fa2 <- p + (1-p)*pnorm(a, mean = 0, sd = sig)
+  
+  if(u > 0 && u <= fa1){
+    g1 <- function(x) (1-p)*pnorm(x, mean = 0, sd = sig)-u
+    r <- uniroot(g1, c(-300, 100))$root
+  }else if(u >= fa1 && u <= fa2){
+    g2 <- function(x) p*(x+a)/(2*a) + (1-p)*pnorm(x, 0, sig) - u
+    r <-uniroot(g2, c(-a-10, a+10))$root
+  }else{
+    g3 <- function(x) p + (1-p)*pnorm(x, 0, sig) - u
+    r <-uniroot(g3, c(a, a+500))$root
+  }
+  return(r)
+}
+```
+
+```{r}
+# QQ plots
+dd <- tibble(
+  x_sample = chge$change, 
+  q = (rank(x_sample ) - .5) /length(x_sample),
+  sample_quant =  quantile(x_sample, probs = q),
+  x_theoretical = sapply(q, quantileLap)
+)
+
+qqlap = ggplot(dd) + 
+  geom_point(aes(x = x_theoretical, y = sample_quant)) +
+  labs(
+    x = "Theoretical quantiles", 
+    y = "Sample quantiles",
+    title = "ULM"
+  ) +
+  geom_abline(intercept = 0, slope = 1, col = "red")+
+  
+  theme_bw()
+```
+
+
+
+```{r}
+library(tibble)
+library(ggplot2)
+
+d <- tibble(
+  x_sample = chge$change, 
+  q = (rank(x_sample ) - .5) /length(x_sample),
+  sample_quant =  quantile(x_sample, probs = q),
+  x_theoretical = sapply(q, quantilenorm)
+)
+
+qqnormal = ggplot(d) + 
+  geom_point(aes(x = x_theoretical, y = sample_quant)) +
+  labs(
+    x = "Theoretical quantiles", 
+    y = "Sample quantiles",
+    title = "UGM"
+  ) +
+  geom_abline(intercept = 0, slope = 1, col = "red")+
+  
+  theme_bw()
+
+cowplot::plot_grid(qqlap, qqnormal)
+```
+
+
+
